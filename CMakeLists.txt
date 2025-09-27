@@ -20,6 +20,7 @@ target_include_directories(game PRIVATE
   ${SDL2_ROOT}/i686-w64-mingw32/include
   ${SDL2_ROOT}/i686-w64-mingw32/include/SDL2
   ${SDL2_ROOT}/SDL2_image-2.8.8/i686-w64-mingw32/include
+  ${SDL2_ROOT}/SDL2_image-2.8.8/i686-w64-mingw32/include/SDL2
   ${SDL2_ROOT}/SDL2_mixer-2.8.1/i686-w64-mingw32/include
   ${SDL2_ROOT}/SDL2_ttf-2.24.0/i686-w64-mingw32/include
   ${SDL2_ROOT}/SDL2_ttf-2.24.0/i686-w64-mingw32/include/SDL2
