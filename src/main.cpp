@@ -507,10 +507,10 @@ struct Game {
             return false;
         }
 
-        font = TTF_OpenFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22);
+        font = TTF_OpenFont("./build/OpenSans-Regular.ttf", 22);
         if(!font){
             // try relative
-            font = TTF_OpenFont("./DejaVuSans.ttf", 22);
+            font = TTF_OpenFont("./OpenSans-Regular.ttf", 22);
             if(!font) printf("Warning: could not open font, text rendering may fail\n");
         }
 
