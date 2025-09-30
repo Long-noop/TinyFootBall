@@ -15,11 +15,16 @@
 #include <vector>
 #include <algorithm>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // Screen
 constexpr int SCREEN_W = 1300;
 constexpr int SCREEN_H = 850;
 
 // Forward
+enum class Team { Blue, Red };
 struct Player;
 
 // Utility
@@ -33,94 +38,147 @@ struct Ball {
     float vx, vy;
     int size;
     SDL_Texture *tex = nullptr;
-    float angle = 0.0f;        // góc xoay hiện tại
-    float spinSpeed = 0.0f;    // tốc độ xoay
+
+    // Trạng thái xoay
+    float angle     = 0.0f;   // góc hiện tại (độ)
+    float spinSpeed = 0.0f;   // tốc độ xoay (độ/giây)
+
+    // Tham số điều chỉnh
+    static constexpr float FRICTION_PER_SEC = 0.98f; // ma sát mỗi giây (tịnh tiến)
+    static constexpr float MIN_STOP_SPEED   = 10.0f; // ngưỡng dừng hẳn (px/s)
+    static constexpr float SPIN_COEFF       = 5.0f;  // hệ số quy đổi px/s -> độ/giây
+    static constexpr float SPIN_SMOOTH      = 0.85f; // trộn mượt spinSpeed (0..1)
 
     Ball(int sx=SCREEN_W/2, int sy=SCREEN_H/2, int s=12){
-        x = sx; y = sy; size = s; vx = 300.0f*(rand()%2?1:-1); vy = 120.0f*((rand()%100)/100.0f - 0.5f);
+        x = sx; y = sy; size = s;
+        vx = 300.0f * (rand()%2 ? 1.0f : -1.0f);
+        vy = 120.0f * ((rand()%100)/100.0f - 0.5f);
     }
 
-    SDL_Rect rect() const { return {(int)std::round(x), (int)std::round(y), size, size}; }
+    SDL_Rect rect() const {
+        return { (int)std::round(x), (int)std::round(y), size, size };
+    }
 
     void reset(bool towardsLeft){
         x = SCREEN_W/2 - size/2;
         y = SCREEN_H/2 - size/2;
-        vx = (towardsLeft? -1:1) * 280.0f;
+        vx = (towardsLeft? -1.0f : 1.0f) * 280.0f;
         vy = 80.0f * ((rand()%100)/100.0f - 0.5f);
+        // reset xoay nhẹ
+        spinSpeed = 0.0f;
+        angle = 0.0f;
     }
 
     void update(float dt){
+        // 1) Cập nhật vị trí
         x += vx * dt;
         y += vy * dt;
 
-        // Áp dụng ma sát: giảm dần vận tốc
-        float friction = 0.98f; // hệ số (mỗi giây)
-        float factor = powf(friction, dt * 60.0f); // scale theo framerate ~60fps
+        // 2) Ma sát tịnh tiến (scale theo 60fps để ổn định)
+        float factor = powf(FRICTION_PER_SEC, dt * 60.0f);
         vx *= factor;
         vy *= factor;
 
-        // Nếu vận tốc quá nhỏ thì dừng hẳn
-        if (fabs(vx) < 10.0f) vx = 0;  // Tăng threshold để bóng không dừng quá sớm
-        if (fabs(vy) < 10.0f) vy = 0;
+        // 3) Chặn nhỏ -> 0 để không “trôi”
+        if (fabsf(vx) < MIN_STOP_SPEED) vx = 0.0f;
+        if (fabsf(vy) < MIN_STOP_SPEED) vy = 0.0f;
 
-        // --- Tính tốc độ xoay dựa trên tốc độ di chuyển ---
+        // 4) Tính tốc độ xoay dựa trên vận tốc & hướng:
+        //    - Độ lớn: tỉ lệ với tốc độ tịnh tiến
+        //    - Dấu: dùng dấu của vx để xác định chiều quay (đơn giản mà nhìn tự nhiên)
         float speed = std::sqrt(vx*vx + vy*vy);
+        float dir   = (vx >= 0.0f) ? 1.0f : -1.0f;
 
-        // Quy ước: 1 pixel dịch chuyển = 0.5 độ xoay
-        spinSpeed = speed * 1.0f;
+        float targetSpin = dir * speed * SPIN_COEFF;
 
-        // Áp dụng ma sát cho xoay (giảm dần khi bóng chậm lại)
+        // 5) Trộn mượt + ma sát quay đồng bộ với tịnh tiến
+        spinSpeed = spinSpeed * SPIN_SMOOTH + targetSpin * (1.0f - SPIN_SMOOTH);
         spinSpeed *= factor;
 
-        // Cập nhật góc xoay
+        // 6) Cập nhật góc
         angle += spinSpeed * dt;
-        if(angle > 360.0f) angle -= 360.0f;
+
+        // 7) Chuẩn hoá góc về [0,360)
+        while (angle >= 360.0f) angle -= 360.0f;
+        while (angle <    0.0f) angle += 360.0f;
     }
 
     // Kick ball from a player position with given force
     void kick(float fromX, float fromY, float force = 400.0f){
         float ballCenterX = x + size/2.0f;
         float ballCenterY = y + size/2.0f;
-        
-        // Calculate direction from player to ball
+
         float dx = ballCenterX - fromX;
         float dy = ballCenterY - fromY;
         float dist = std::sqrt(dx*dx + dy*dy);
-        
-        if(dist > 0.1f){
-            // Normalize direction and apply force
-            dx /= dist;
+
+        if(dist > 0.0001f){
+            dx /= dist;  // normalize
             dy /= dist;
-            
-            // Add kick velocity
+
+            // Cộng vận tốc do cú sút
             vx += dx * force;
             vy += dy * force;
+
+            float side = (dx >= 0.0f) ? 1.0f : -1.0f; // xoáy phụ thuộc hướng x
+            spinSpeed += side * 250.0f;
         }
     }
 };
+
 
 // =====================================
 // Player (composed of body + arm + leg)
 // =====================================
 struct Player {
-    SDL_Rect r; // position & size
+    // Kích thước sprite Kenney gốc
+    static constexpr int SRC_BODY_W = 21;
+    static constexpr int SRC_BODY_H = 31;
+    static constexpr int SRC_ARM_W  = 19;
+    static constexpr int SRC_ARM_H  = 13;
+    static constexpr int SRC_LEG_W  = 19;
+    static constexpr int SRC_LEG_H  = 13;
+
+    // Hệ số phóng to để nhìn rõ
+    static constexpr float SCALE = 1.8f;
+
+    // Kích thước vẽ (đã scale)
+    static constexpr int BODY_W = int(SRC_BODY_W * SCALE);
+    static constexpr int BODY_H = int(SRC_BODY_H * SCALE);
+    static constexpr int ARM_W  = int(SRC_ARM_W  * SCALE);
+    static constexpr int ARM_H  = int(SRC_ARM_H  * SCALE);
+    static constexpr int LEG_W  = int(SRC_LEG_W  * SCALE);
+    static constexpr int LEG_H  = int(SRC_LEG_H  * SCALE);
+
+    SDL_Rect r; // hitbox/logic = BODY_W/H
     float speed = 260.0f;
+
     // key mapping
     SDL_Scancode up, down, left, right, kick;
-    bool active = true; // whether it's controllable
+    bool active = true;
     bool isAI = false;
-    float kickRange = 40.0f; // Distance within which player can kick ball
+    float kickRange = 50.0f; // tăng nhẹ cho dễ sút
 
+    // textures Kenney
     SDL_Texture* texBody = nullptr;
     SDL_Texture* texArm  = nullptr;
     SDL_Texture* texLeg  = nullptr;
 
-    // animation state
-    float animTime = 0.0f;   // tăng dần theo thời gian
-    float moveX = 0, moveY = 0; // lưu hướng di chuyển
+    Team team = Team::Blue;
+    SDL_Color jerseyTint = {255,255,255,255};
 
-    Player(int x=0,int y=0,int w=24,int h=64){
+    // vị trí hiển thị mượt
+    float visX = 0.f, visY = 0.f;
+    float smooth = 12.0f;
+
+    // animation
+    float animTime = 0.0f;
+    float moveX = 0, moveY = 0;
+
+    Player(int x=0,int y=0,int w=BODY_W,int h=BODY_H){
         r.x=x; r.y=y; r.w=w; r.h=h;
+        visX = (float)x;  // để cả cầu thủ inactive vẫn xuất hiện
+        visY = (float)y;
     }
 
     void update_from_keyboard(const Uint8* keystate, float dt){
@@ -138,177 +196,222 @@ struct Player {
         r.x += (int)std::round(dx * speed * dt);
         r.y += (int)std::round(dy * speed * dt);
 
-        // clamp inside screen
         r.x = (int)clampf(r.x, 0, SCREEN_W - r.w);
         r.y = (int)clampf(r.y, 0, SCREEN_H - r.h);
 
-        // cập nhật thời gian animation khi có di chuyển
-        if(dx != 0 || dy != 0) {
-            animTime += dt;
-        } else {
-            animTime = 0; // reset nếu đứng yên
-        }
+        if(dx != 0 || dy != 0) animTime += dt; else animTime = 0;
+
+        visX += ((float)r.x - visX) * clampf(smooth * dt, 0.f, 1.f);
+        visY += ((float)r.y - visY) * clampf(smooth * dt, 0.f, 1.f);
     }
 
     void update_AI(const Ball& b, float dt){
         if(!isAI) return;
-        // simple AI: follow ball y
         float targetY = b.y + b.size/2 - r.h/2;
         float dy = targetY - r.y;
         moveX = 0; moveY = 0;
         if(std::abs(dy) > 6){
             float dir = (dy>0)?1:-1;
-            r.y += (int)std::round(dir * speed * dt * 0.8f); // AI slower
+            r.y += (int)std::round(dir * speed * dt * 0.8f);
             moveY = dir;
         }
-        // clamp
         r.y = (int)clampf(r.y, 0, SCREEN_H - r.h);
-
         if(moveX != 0 || moveY != 0) animTime += dt; else animTime = 0;
+
+        visX += ((float)r.x - visX) * clampf(smooth * dt, 0.f, 1.f);
+        visY += ((float)r.y - visY) * clampf(smooth * dt, 0.f, 1.f);
     }
 
-    // Check if player can kick the ball
     bool canKickBall(const Ball& ball) const {
-        float playerCenterX = r.x + r.w/2.0f;
-        float playerCenterY = r.y + r.h/2.0f;
-        float ballCenterX = ball.x + ball.size/2.0f;
-        float ballCenterY = ball.y + ball.size/2.0f;
-        
-        float dist = std::sqrt(
-            (playerCenterX - ballCenterX) * (playerCenterX - ballCenterX) + 
-            (playerCenterY - ballCenterY) * (playerCenterY - ballCenterY)
-        );
-        
-        return dist <= kickRange;
+        float cx = r.x + r.w/2.0f;
+        float cy = r.y + r.h/2.0f;
+        float bx = ball.x + ball.size/2.0f;
+        float by = ball.y + ball.size/2.0f;
+        float dx = cx - bx, dy = cy - by;
+        return (dx*dx + dy*dy) <= (kickRange*kickRange);
     }
 
     void kickBall(Ball& ball) const {
         if(canKickBall(ball)){
-            float playerCenterX = r.x + r.w/2.0f;
-            float playerCenterY = r.y + r.h/2.0f;
-            ball.kick(playerCenterX, playerCenterY, 450.0f);
+            float cx = r.x + r.w/2.0f;
+            float cy = r.y + r.h/2.0f;
+            ball.kick(cx, cy, 450.0f);
         }
     }
 
-    // Render player với animation
-    // void render(SDL_Renderer* renderer){
-    //     if(!texBody){
-    //         SDL_SetRenderDrawColor(renderer, 0,200,255,255);
-    //         SDL_RenderFillRect(renderer, &r);
-    //         return;
-    //     }
-
-    //     double swing = sin(animTime * 10.0) * 60.0; // góc vung
-
-    //     // --- Legs ---
-    //     if(texLeg){
-    //         // chân trái
-    //         SDL_Rect dstLegR = {r.x + 15, r.y, 19, 13};
-    //         SDL_Point pivotLegR = {dstLegR.w/2, 0};
-    //         SDL_RenderCopyEx(renderer, texLeg, NULL, &dstLegR, -swing, &pivotLegR, SDL_FLIP_NONE);
-
-    //         // chân phải
-    //         SDL_Rect dstLegL = {r.x-12, r.y +15, 19, 13};
-    //         SDL_Point pivotLegL = {dstLegL.w/2, 0};
-    //         SDL_RenderCopyEx(renderer, texLeg, NULL, &dstLegL, swing, &pivotLegL, SDL_FLIP_HORIZONTAL);
-
-            
-    //     }
-
-    //     // --- Body ---
-    //     SDL_Rect dstBody = {r.x, r.y, r.w, r.h};
-    //     SDL_RenderCopy(renderer, texBody, NULL, &dstBody);
-
-    //     // --- Arms ---
-    //     // if(texArm){
-    //     //     // tay trái
-    //     //     SDL_Rect dstArmL = {r.x - r.w/4, r.y, 19, 13};
-    //     //     SDL_Point pivotArmL = {dstArmL.w/2, dstArmL.h/4};
-    //     //     SDL_RenderCopyEx(renderer, texArm, NULL, &dstArmL, swing, &pivotArmL, SDL_FLIP_NONE);
-
-    //     //     // tay phải
-    //     //     SDL_Rect dstArmR = {r.x + r.w - r.w/4, r.y, 19, 13};
-    //     //     SDL_Point pivotArmR = {dstArmR.w/2, dstArmR.h/4};
-    //     //     SDL_RenderCopyEx(renderer, texArm, NULL, &dstArmR, -swing, &pivotArmR, SDL_FLIP_NONE);
-    //     // }
-    // }
-
 void render(SDL_Renderer* renderer){
-    if(!texBody){
-        SDL_SetRenderDrawColor(renderer, 0,200,255,255);
-        SDL_RenderFillRect(renderer, &r);
+    // Fallback nếu thiếu sprite → vẽ rect màu đội
+    if(!texBody || !texLeg){
+        if(team == Team::Blue) SDL_SetRenderDrawColor(renderer, 80,150,255,255);
+        else                   SDL_SetRenderDrawColor(renderer, 255,170,60,255);
+        SDL_Rect rr = { (int)std::round(visX), (int)std::round(visY), r.w, r.h };
+        SDL_RenderFillRect(renderer, &rr);
+        if(active){
+            SDL_SetRenderDrawColor(renderer, 255,235,80,230);
+            SDL_Rect bd = { rr.x-2, rr.y-2, rr.w+4, rr.h+4 };
+            SDL_RenderDrawRect(renderer, &bd);
+        }
         return;
     }
 
-    // --- Chu kỳ bước chạy ---
-    float runCycle = sin(animTime * 12.0f); // tần số cao hơn cho nhịp chạy nhanh
-    float stepLength = 12.0f;               // độ dài bước
+    // ===== 1) Tâm nhân vật & bóng đổ nhẹ
+    const int baseX = (int)std::round(visX);
+    const int baseY = (int)std::round(visY);
+    const float cx  = baseX + BODY_W * 0.5f;
+    const float cy  = baseY + BODY_H * 0.5f;
 
-    // --- Offset chân theo hướng di chuyển ---
-    float rightLegOffsetX = runCycle * stepLength * moveX;
-    float rightLegOffsetY = runCycle * stepLength * moveY;
-    float leftLegOffsetX  = -runCycle * stepLength * moveX;
-    float leftLegOffsetY  = -runCycle * stepLength * moveY;
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, 0,0,0,70);
+    SDL_Rect shadow = { (int)(cx - BODY_W*0.25f), (int)(baseY + BODY_H - 8), BODY_W/2, 7 };
+    SDL_RenderFillRect(renderer, &shadow);
 
-    // Nếu đứng yên, cho chạy tại chỗ hướng xuống
-    if(fabs(moveX) < 0.1f && fabs(moveY) < 0.1f){
-        rightLegOffsetX = 0; rightLegOffsetY = runCycle * stepLength * 0.5f;
-        leftLegOffsetX  = 0; leftLegOffsetY  = -runCycle * stepLength * 0.5f;
-    }
+// ===== 2) Hướng nhìn (idle nhìn xuống)
+float angleDeg = atan2f(moveY, moveX) * 180.0f / (float)M_PI;
+if (fabsf(moveX) < 0.1f && fabsf(moveY) < 0.1f) angleDeg = 90.0f;
+const float angRad = angleDeg * (float)M_PI / 180.0f;
 
-    // --- Vị trí gốc của chân ---
-    float baseLegX = r.x + r.w / 2.0f;
-    float baseLegY = r.y + r.h - 5;
+// forward & right (LOCAL axes của nhân vật)
+const float fx = cosf(angRad), fy = sinf(angRad);
+const float rx = fy,          ry =  -fx;
 
-    // --- Tính góc xoay của chân dựa trên hướng di chuyển ---
-    float angle = atan2(moveY, moveX) * 180.0f / M_PI; // độ
-    if(fabs(moveX) < 0.1f && fabs(moveY) < 0.1f) angle = 90.0f; // mặc định nhìn xuống
+// ===== 3) Offset quanh tâm (đã tinh chỉnh cho bộ Kenney)
+const float ARM_DIST   = BODY_W * 0.36f;   // tay bám sát thân
+const float LEG_DIST   = BODY_H * 0.05f;   // hông ngay sau thân
+const float LEG_SPREAD = BODY_W * 0.26f;   // xòe chân
+const float STEP_LEN   = BODY_H * 0.20f;   // biên độ bước
+const float runCycle   = sinf(animTime * 10.0f);
+const float stepF      = runCycle * STEP_LEN;
 
-    // --- Chân phải ---
-    SDL_Rect dstLegR = {
-        (int)(baseLegX + 6 + rightLegOffsetX),
-        (int)(baseLegY + rightLegOffsetY),
-        19, 13
+// Vai (tay)
+const float shoulderLx = cx - ARM_DIST * rx;
+const float shoulderLy = cy - ARM_DIST * ry;
+const float shoulderRx = cx + ARM_DIST * rx;
+const float shoulderRy = cy + ARM_DIST * ry;
+
+// ===== SỬA Ở ĐÂY: tính hông theo RIGHT + FORWARD (không dùng cos/sin với độ)
+// "sang phải" của thân: +HIP_OFFSET_X * (rx, ry)
+// "xuống dưới" theo hướng nhìn: +HIP_OFFSET_Y * (fx, fy)
+const float HIP_OFFSET_X = BODY_W * 0.2f;   // lệch sang phải
+const float HIP_OFFSET_Y = BODY_H * 0.25f;   // lệch xuống theo hướng nhìn
+
+const float hipBaseX = cx + HIP_OFFSET_X * rx + HIP_OFFSET_Y * fx;
+const float hipBaseY = cy + HIP_OFFSET_X * ry + HIP_OFFSET_Y * fy;
+
+// Hông (chân) + hiệu ứng bước chạy dọc theo forward
+const float hipLx = hipBaseX - LEG_SPREAD * rx + stepF * fx;   // chân trái
+const float hipLy = hipBaseY - LEG_SPREAD * ry + stepF * fy;
+const float hipRx = hipBaseX + LEG_SPREAD * rx - stepF * fx;   // chân phải
+const float hipRy = hipBaseY + LEG_SPREAD * ry - stepF * fy;
+
+
+
+    // ===== 4) Vẽ theo "điểm khớp" (pivot)
+    auto drawAtPivot = [&](SDL_Texture* tex, float jx, float jy,
+                           int w, int h, float deg,
+                           int pivotX, int pivotY)
+    {
+        SDL_Rect dst{ int(jx - pivotX), int(jy - pivotY), w, h };
+        SDL_Point pivot{ pivotX, pivotY };
+        SDL_RenderCopyEx(renderer, tex, nullptr, &dst, deg, &pivot, SDL_FLIP_NONE);
     };
-    SDL_Point pivotR = { dstLegR.w/2, 0 };
 
-    // --- Chân trái ---
-    SDL_Rect dstLegL = {
-        (int)(baseLegX - 6 + leftLegOffsetX),
-        (int)(baseLegY + leftLegOffsetY),
-        19, 13
-    };
-    SDL_Point pivotL = { dstLegL.w/2, 0 };
+    // Pivot của sprite (điểm dính vào thân)
+    const int ARM_PIVOT_L_X = int(ARM_W * 0.15f), ARM_PIVOT_L_Y = ARM_H/2; // tay trái: mép trong
+    const int ARM_PIVOT_R_X = int(ARM_W * 0.15f), ARM_PIVOT_R_Y = ARM_H/2; // tay phải: mép trong
+    const int LEG_PIVOT_X   = LEG_W/2,            LEG_PIVOT_Y   = int(LEG_H * 0.10f); // đỉnh trên
 
-    // --- Render theo độ sâu ---
-    bool rightLegFront = runCycle > 0;
-    if(rightLegFront){
-        // Chân trái ở sau
-        SDL_SetTextureColorMod(texLeg, 180,180,180);
-        SDL_RenderCopyEx(renderer, texLeg, NULL, &dstLegL, angle+180, &pivotL, SDL_FLIP_NONE);
-        SDL_SetTextureColorMod(texLeg, 255,255,255);
+    // ===== 5) Tint đồng phục
+    SDL_SetTextureColorMod(texBody, jerseyTint.r, jerseyTint.g, jerseyTint.b);
+    SDL_SetTextureColorMod(texLeg,  jerseyTint.r, jerseyTint.g, jerseyTint.b);
+    if (texArm) SDL_SetTextureColorMod(texArm, jerseyTint.r, jerseyTint.g, jerseyTint.b);
+
+    // Xác định "bên trước" theo pha bước chạy; khi đứng yên giữ mặc định tay trái trước
+    const bool moving = (fabsf(moveX) > 0.1f || fabsf(moveY) > 0.1f);
+    const bool rightFront = runCycle > 0.0f;      // chân phải trước khi pha > 0
+    const bool leftArmFront = moving ? rightFront : true; // chân phải trước → tay trái trước
+    const bool rightArmFrontAlt = !leftArmFront;
+
+    // ===== 6) LỚP VẼ: CHÂN → TAY → BODY =====
+
+    // --- CHÂN (cả hai chân vẽ TRƯỚC tay & body)
+    SDL_SetTextureColorMod(texLeg,
+        (Uint8)(jerseyTint.r*0.88f),
+        (Uint8)(jerseyTint.g*0.88f),
+        (Uint8)(jerseyTint.b*0.88f));          // hơi tối cho có chiều sâu
+    drawAtPivot(texLeg, hipLx, hipLy, LEG_W, LEG_H, angleDeg, LEG_PIVOT_X, LEG_PIVOT_Y);
+    drawAtPivot(texLeg, hipRx, hipRy, LEG_W, LEG_H, angleDeg, LEG_PIVOT_X, LEG_PIVOT_Y);
+    SDL_SetTextureColorMod(texLeg, jerseyTint.r, jerseyTint.g, jerseyTint.b);
+
+    // --- TAY (nằm TRÊN chân nhưng DƯỚI body) ---
+if (texArm) {
+    // Pha đánh tay (ngược pha với chân để chạy tự nhiên hơn)
+    float armSwing = sinf(animTime * 6.0f) * 35.0f;
+
+    // Khi chạy: tay trái & tay phải đối xứng
+    // Nếu đang đứng yên → mặc định tay trái ra trước
+    const bool moving = (fabsf(moveX) > 0.1f || fabsf(moveY) > 0.1f);
+    bool leftArmFront = moving ? (armSwing > 0.0f) : true;
+
+    // --- Tay sau (làm tối màu 15%) ---
+    SDL_SetTextureColorMod(texArm,
+        (Uint8)(jerseyTint.r * 0.85f),
+        (Uint8)(jerseyTint.g * 0.85f),
+        (Uint8)(jerseyTint.b * 0.85f));
+
+    if (leftArmFront) {
+        // Tay phải là tay sau
+        drawAtPivot(texArm, shoulderRx, shoulderRy, ARM_W, ARM_H,
+                    angleDeg - armSwing + 180.0f,
+                    ARM_PIVOT_R_X, ARM_PIVOT_R_Y);
     } else {
-        // Chân phải ở sau
-        SDL_SetTextureColorMod(texLeg, 180,180,180);
-        SDL_RenderCopyEx(renderer, texLeg, NULL, &dstLegR, angle+180, &pivotR, SDL_FLIP_NONE);
-        SDL_SetTextureColorMod(texLeg, 255,255,255);
+        // Tay trái là tay sau
+        drawAtPivot(texArm, shoulderLx, shoulderLy, ARM_W, ARM_H,
+                    angleDeg + armSwing + 180.0f,
+                    ARM_PIVOT_L_X, ARM_PIVOT_L_Y);
     }
 
-    // --- Chân trước ---
-    if(rightLegFront){
-        SDL_RenderCopyEx(renderer, texLeg, NULL, &dstLegR, angle, &pivotR, SDL_FLIP_NONE);
+    // --- Tay trước (giữ màu gốc) ---
+    SDL_SetTextureColorMod(texArm,
+        jerseyTint.r, jerseyTint.g, jerseyTint.b);
+
+    if (leftArmFront) {
+        // Tay trái là tay trước
+        drawAtPivot(texArm, shoulderLx, shoulderLy, ARM_W, ARM_H,
+                    angleDeg + armSwing,
+                    ARM_PIVOT_L_X, ARM_PIVOT_L_Y);
     } else {
-        SDL_RenderCopyEx(renderer, texLeg, NULL, &dstLegL, angle, &pivotL, SDL_FLIP_NONE);
+        // Tay phải là tay trước
+        drawAtPivot(texArm, shoulderRx, shoulderRy, ARM_W, ARM_H,
+                    angleDeg - armSwing,
+                    ARM_PIVOT_R_X, ARM_PIVOT_R_Y);
     }
-
-    // --- Body ---
-    SDL_Rect dstBody = { r.x, r.y, 21, 31 };
-    SDL_RenderCopyEx(renderer, texBody, NULL, &dstBody, angle, NULL, SDL_FLIP_NONE);
-
-    // --- Arms (nếu cần, có thể cho swing nhẹ như chân) ---
 }
 
+
+
+    // --- BODY (vẽ CUỐI CÙNG)
+    SDL_Rect dstBody{ int(cx - BODY_W*0.5f), int(cy - BODY_H*0.5f), BODY_W, BODY_H };
+    SDL_RenderCopyEx(renderer, texBody, nullptr, &dstBody, angleDeg, nullptr, SDL_FLIP_NONE);
+
+    // Viền người active
+    if (active){
+        SDL_SetRenderDrawColor(renderer, 255,235,80,230);
+        SDL_Rect border{ dstBody.x-2, dstBody.y-2, dstBody.w+4, dstBody.h+4 };
+        SDL_RenderDrawRect(renderer, &border);
+    }
+
+    // reset tint
+    SDL_SetTextureColorMod(texBody, 255,255,255);
+    SDL_SetTextureColorMod(texLeg,  255,255,255);
+    if (texArm) SDL_SetTextureColorMod(texArm, 255,255,255);
+}
+
+
+
 };
+
+
+
 
 // =====================================
 // Scoreboard
@@ -382,8 +485,13 @@ struct Game {
         }
 
         window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_W, SCREEN_H, SDL_WINDOW_SHOWN);
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
         if(!window){ printf("CreateWindow failed: %s\n", SDL_GetError()); return false; }
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        if ((IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG)) == 0) {
+        printf("IMG_Init Error: %s\n", IMG_GetError());
+         // vẫn chạy tiếp được nếu thiếu decoder, nhưng nên có ảnh PNG/JPG
+        }
         if(!renderer){ printf("CreateRenderer failed: %s\n", SDL_GetError()); return false; }
 
         SDL_Texture* texBall = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Equipment/ball_soccer2.png");
@@ -432,18 +540,35 @@ struct Game {
         p4.active = false; p4.isAI = false;  // P4 starts inactive
         players.push_back(p4);
 
-        SDL_Texture *texBody = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Blue/characterBlue (1).png");
-        SDL_Texture *texArm  = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Blue/characterBlue (11).png");
-        SDL_Texture *texLeg  = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Blue/characterBlue (13).png");
+        // Set team cho từng người
+        players[0].team = Team::Blue;
+        players[1].team = Team::Blue;
+        players[2].team = Team::Red;   
+        players[3].team = Team::Red;
 
-        if(!texBody || !texArm || !texLeg){
-            printf("Error loading player textures: %s\n", IMG_GetError());
+        // Blue
+        SDL_Texture *bodyBlue = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Blue/characterBlue (1).png");
+        SDL_Texture *armBlue  = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Blue/characterBlue (11).png");
+        SDL_Texture *legBlue  = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Blue/characterBlue (13).png");
+
+        // Red (nếu pack của bạn có thư mục Red, còn không thì dùng lại Blue)
+        SDL_Texture *bodyRed = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Red/characterRed (1).png");
+        SDL_Texture *armRed  = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Red/characterRed (11).png");
+        SDL_Texture *legRed  = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Red/characterRed (13).png");
+
+        if(!bodyBlue || !armBlue || !legBlue){
+            printf("Error loading Blue textures: %s\n", IMG_GetError());
         }
-        for(auto &p : players){
-            p.texBody = texBody;
-            p.texArm  = texArm;
-            p.texLeg  = texLeg;
+        if(!bodyRed || !armRed || !legRed){
+            // fallback: dùng Blue thay Red nếu thiếu
+            bodyRed = bodyBlue; armRed = armBlue; legRed = legBlue;
         }
+
+        // gán cho từng player theo đội
+        players[0].texBody = bodyBlue; players[0].texArm = armBlue; players[0].texLeg = legBlue;
+        players[1].texBody = bodyBlue; players[1].texArm = armBlue; players[1].texLeg = legBlue;
+        players[2].texBody = bodyRed;  players[2].texArm = armRed;  players[2].texLeg = legRed;
+        players[3].texBody = bodyRed;  players[3].texArm = armRed;  players[3].texLeg = legRed;
 
         return true;
     }
@@ -611,12 +736,15 @@ struct Game {
             
             // Draw kick range if player is active and can kick
             if(p.active && p.canKickBall(ball)){
-                SDL_SetRenderDrawColor(renderer, 255,255,0,80);
+                // màu vòng theo đội (alpha 80)
+                if(p.team == Team::Blue) SDL_SetRenderDrawColor(renderer, 120,170,255,80);
+                else                     SDL_SetRenderDrawColor(renderer, 255,170,60,80);
                 int kickX = p.r.x + p.r.w/2 - (int)p.kickRange;
                 int kickY = p.r.y + p.r.h/2 - (int)p.kickRange;
                 SDL_Rect kickRange = {kickX, kickY, (int)p.kickRange*2, (int)p.kickRange*2};
                 SDL_RenderFillRect(renderer, &kickRange);
             }
+
             
             // Draw player
             p.render(renderer);
@@ -674,6 +802,7 @@ struct Game {
         if(window) SDL_DestroyWindow(window);
         TTF_Quit();
         SDL_Quit();
+        IMG_Quit();
     }
 };
 
