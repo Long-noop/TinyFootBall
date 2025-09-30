@@ -1,0 +1,8 @@
+{
+    "cmake.sourceDirectory": "D:/TinyFootball/SDL2/project",
+    "files.associations": {
+        "queue": "cpp",
+        "stack": "cpp",
+        "random": "cpp"
+    }
+}
