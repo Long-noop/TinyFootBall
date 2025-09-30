@@ -464,6 +464,7 @@ struct Game {
     TTF_Font* font = nullptr;
     bool running = true;
     SDL_Texture* bgTex = nullptr;
+    SDL_Texture* elementsTex = nullptr;  // texture chứa cầu môn
 
     Ball ball;
     std::vector<Player> players; // left players first, then right
@@ -505,6 +506,13 @@ struct Game {
         if(!bgTex){
             printf("IMG_LoadTexture Error: %s\n", IMG_GetError());
             return false;
+        }
+
+          // Load elements texture (chứa cầu môn)
+
+        elementsTex = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Elements/element (41).png");
+        if(!elementsTex){
+            printf("Warning: Elements texture not found\n");
         }
 
         font = TTF_OpenFont("./build/OpenSans-Regular.ttf", 22);
@@ -658,6 +666,15 @@ struct Game {
         if(ball.y <= 0){ ball.y = 0; ball.vy = -ball.vy; }
         if(ball.y + ball.size >= SCREEN_H){ ball.y = SCREEN_H - ball.size; ball.vy = -ball.vy; }
 
+        // collision with left/right -> reflect
+        if (ball.x <= 0) {
+            ball.x = 0;
+            ball.vx = -ball.vx;
+        }
+        if (ball.x + ball.size >= SCREEN_W) {
+            ball.x = SCREEN_W - ball.size;
+            ball.vx = -ball.vx;
+        }
         // collision with players
         SDL_Rect brect = ball.rect();
         for(auto &p : players){
@@ -690,20 +707,44 @@ struct Game {
             }
         }
 
-        // scoring: left goal is x<=0, right goal x+size>=SCREEN_W
-        if(ball.x <= -10){ // right team scores
-            score.right += 1;
-            ball.reset(false); // towards right team? false means to right
+        float scale = 0.8f;
+        int goalWidth  = SCREEN_W * 0.108 * scale;   // giảm cả width
+        int goalHeight = SCREEN_H * 0.15 * scale;    // giảm cả height
+
+        int goalCenterY = SCREEN_H / 2;  
+        int goalY = goalCenterY - goalHeight / 2;  // cập nhật lại Y
+
+        // --- Ghi bàn bên trái (bóng lọt vào goal trái) ---
+        if (ball.x <= 80) { // bóng vượt qua vạch trong
+            if (ball.y + ball.size >= goalY && ball.y <= goalY + goalHeight) {
+                score.right += 1;     // đội phải ghi bàn
+                ball.reset(false);    // giao bóng cho đội trái
+            }
         }
-        if(ball.x + ball.size >= SCREEN_W + 10){ // left team scores
-            score.left += 1;
-            ball.reset(true);
+
+        // --- Ghi bàn bên phải (bóng lọt vào goal phải) ---
+        if (ball.x + ball.size >= SCREEN_W - 80) { // bóng vượt qua vạch trong
+            if (ball.y + ball.size >= goalY && ball.y <= goalY + goalHeight) {
+                score.left += 1;      // đội trái ghi bàn
+                ball.reset(true);     // giao bóng cho đội phải
+            }
         }
 
         // small friction to avoid runaway velocities
         float maxSpeed = 900.0f;
         float sp = std::sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
         if(sp > maxSpeed){ ball.vx *= maxSpeed/sp; ball.vy *= maxSpeed/sp; }
+    }
+
+    // Hàm vẽ cầu môn từ elements.png (dùng toàn bộ ảnh, không cắt sprite)
+    void render_goal(int x, int y, int width, int height, bool leftGoal = true){
+        if(!elementsTex) return;
+        // Không dùng srcRect (NULL = lấy toàn bộ ảnh)
+        SDL_Rect dstGoal = {x, y, 60, 100};
+
+        // Nếu muốn lật cho cầu môn bên phải
+        SDL_RendererFlip flip = leftGoal ? SDL_FLIP_NONE : SDL_FLIP_HORIZONTAL;
+        SDL_RenderCopyEx(renderer, elementsTex, NULL, &dstGoal, 0, NULL, flip);
     }
 
     void render_text(const std::string &txt, int x, int y){
@@ -766,12 +807,14 @@ struct Game {
             SDL_RenderFillRect(renderer, &brect);
         }
 
-        // draw goals (simple)
-        SDL_SetRenderDrawColor(renderer, 70,70,70,255);
-        SDL_Rect leftGoal = {0, SCREEN_H/3, 6, SCREEN_H/3};
-        SDL_Rect rightGoal = {SCREEN_W-6, SCREEN_H/3, 6, SCREEN_H/3};
-        SDL_RenderFillRect(renderer, &leftGoal);
-        SDL_RenderFillRect(renderer, &rightGoal);
+        float scale = 0.8f;
+        int goalWidth  = SCREEN_W * 0.108 * scale;   // giảm cả width
+        int goalHeight = SCREEN_H * 0.15 * scale;    // giảm cả height
+
+        int goalCenterY = SCREEN_H / 2;  
+        int goalY = goalCenterY - goalHeight / 2;  // cập nhật lại Y
+        render_goal(+39, goalY, goalWidth, goalHeight, true);   // cầu môn trái
+        render_goal(SCREEN_W - goalWidth +16, goalY, goalWidth, goalHeight, false); // cầu môn phải
 
         // HUD
         render_text("Tiny Football - F1 debug, F2 toggle AI", 8, 8);
@@ -798,6 +841,7 @@ struct Game {
     void cleanup(){
         if(font) TTF_CloseFont(font);
         if(bgTex) SDL_DestroyTexture(bgTex);
+        if(elementsTex) SDL_DestroyTexture(elementsTex);
         if(renderer) SDL_DestroyRenderer(renderer);
         if(window) SDL_DestroyWindow(window);
         TTF_Quit();
