@@ -462,6 +462,8 @@ struct Game {
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;
     TTF_Font* font = nullptr;
+    TTF_Font* font_small = nullptr;
+    TTF_Font* font_large = nullptr;
     bool running = true;
     SDL_Texture* bgTex = nullptr;
     SDL_Texture* elementsTex = nullptr;  // texture chứa cầu môn
@@ -472,6 +474,8 @@ struct Game {
 
     bool showDebug = false;
     bool aiEnabled = false; // let player 2 be AI
+
+    float goalMessageTimer = 0.0f;
 
     Game(){ }
 
@@ -520,6 +524,18 @@ struct Game {
             // try relative
             font = TTF_OpenFont("./OpenSans-Regular.ttf", 22);
             if(!font) printf("Warning: could not open font, text rendering may fail\n");
+        }
+
+        font_small = TTF_OpenFont("./build/OpenSans-Regular.ttf", 16);
+        if(!font_small){
+            font_small = TTF_OpenFont("./OpenSans-Regular.ttf", 16);
+            if(!font_small) printf("Warning: could not open small font\n");
+        }
+
+        font_large = TTF_OpenFont("./build/OpenSans-Regular.ttf", 72);
+        if(!font_large){
+            font_large = TTF_OpenFont("./OpenSans-Regular.ttf", 72);
+            if(!font_large) printf("Warning: could not open large font\n");
         }
 
         // init players: simple config: left two players (team left), right two players (team right)
@@ -659,6 +675,10 @@ struct Game {
         // AI update
         for(auto &p : players) if(p.isAI) p.update_AI(ball, dt);
 
+        if(goalMessageTimer > 0.0f){
+            goalMessageTimer -= dt;
+        }
+
         // ball physics
         ball.update(dt);
 
@@ -718,6 +738,7 @@ struct Game {
         if (ball.x <= 80) { // bóng vượt qua vạch trong
             if (ball.y + ball.size >= goalY && ball.y <= goalY + goalHeight) {
                 score.right += 1;     // đội phải ghi bàn
+                goalMessageTimer = 1.5f;
                 ball.reset(false);    // giao bóng cho đội trái
             }
         }
@@ -726,6 +747,7 @@ struct Game {
         if (ball.x + ball.size >= SCREEN_W - 80) { // bóng vượt qua vạch trong
             if (ball.y + ball.size >= goalY && ball.y <= goalY + goalHeight) {
                 score.left += 1;      // đội trái ghi bàn
+                goalMessageTimer = 1.5f;
                 ball.reset(true);     // giao bóng cho đội phải
             }
         }
@@ -749,13 +771,46 @@ struct Game {
 
     void render_text(const std::string &txt, int x, int y){
         if(!font) return;
+        TTF_SetFontStyle(font, TTF_STYLE_BOLD);
+        SDL_Color black = {0, 0, 0, 255};
+        SDL_Surface* surf = TTF_RenderText_Solid(font, txt.c_str(), black);
+        TTF_SetFontStyle(font, TTF_STYLE_NORMAL);
+        if(!surf) return;
+        SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+        SDL_Rect dst = {x, y, surf->w, surf->h};
+        SDL_FreeSurface(surf);
+        if(tex){SDL_RenderCopy(renderer, tex, NULL, &dst);SDL_DestroyTexture(tex);}
+    }
+
+    void render_text_small(const std::string &txt, int x, int y){
+        if(!font_small) return;
         SDL_Color white = {255,255,255,255};
-        SDL_Surface* surf = TTF_RenderText_Solid(font, txt.c_str(), white);
+        SDL_Surface* surf = TTF_RenderText_Solid(font_small, txt.c_str(), white);
         if(!surf) return;
         SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
         SDL_Rect dst = {x,y,surf->w,surf->h};
         SDL_FreeSurface(surf);
         if(tex){ SDL_RenderCopy(renderer, tex, NULL, &dst); SDL_DestroyTexture(tex); }
+    }
+
+    void render_text_with_bg(const std::string &txt, int x, int y, TTF_Font* fnt, SDL_Color textColor, SDL_Color bgColor, int padding = 8){
+        if(!fnt) return;
+        TTF_SetFontStyle(fnt, TTF_STYLE_BOLD);
+        SDL_Surface* surf = TTF_RenderText_Blended(fnt, txt.c_str(), textColor);
+        TTF_SetFontStyle(fnt, TTF_STYLE_NORMAL);
+        if(!surf) return;
+        
+        // Draw background rectangle
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer, bgColor.r, bgColor.g, bgColor.b, bgColor.a);
+        SDL_Rect bgRect = {x - padding, y - padding, surf->w + padding*2, surf->h + padding*2};
+        SDL_RenderFillRect(renderer, &bgRect);
+        
+        // Draw text
+        SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+        SDL_Rect dst = {x, y, surf->w, surf->h};
+        SDL_FreeSurface(surf);
+        if(tex){SDL_RenderCopy(renderer, tex, NULL, &dst);SDL_DestroyTexture(tex);}
     }
 
     void render(){
@@ -817,21 +872,31 @@ struct Game {
         render_goal(SCREEN_W - goalWidth +16, goalY, goalWidth, goalHeight, false); // cầu môn phải
 
         // HUD
-        render_text("Tiny Football - F1 debug, F2 toggle AI", 8, 8);
-        render_text("Controls: WASD+Q (Blue Team), Arrows+RShift (Orange Team)", 8, 32);
-        render_text("Switch Player: Q+Tab (Blue), P+Tab (Orange)", 8, 56);
-        char scoreText[64]; snprintf(scoreText, sizeof(scoreText), "Score: %d  -  %d", score.left, score.right);
-        render_text(scoreText, SCREEN_W/2 - 60, 12);
+        render_text_small("Tiny Football - F1 debug, F2 toggle AI", 8, 8);
+        render_text_small("Controls: WASD+Q (Blue Team), Arrows+RShift (Orange Team)", 8, 32);
+        render_text_small("Switch Player: Q+Tab (Blue), P+Tab (Orange)", 8, 56);
+
+        char scoreText[64]; 
+        snprintf(scoreText, sizeof(scoreText), "%d  -  %d", score.left, score.right);
+        SDL_Color white = {255, 255, 255, 255};
+        SDL_Color scoreBg = {0, 0, 0, 160};
+        render_text_with_bg(scoreText, SCREEN_W/2 - 35, 12, font, white, scoreBg, 12);
+
+        if(goalMessageTimer > 0.0f && font_large){
+            SDL_Color yellow = {255, 235, 59, 255};
+            SDL_Color goalBg = {0, 0, 0, 200};
+            render_text_with_bg("GOAL!!!", SCREEN_W/2 - 140, SCREEN_H/2 - 60, font_large, yellow, goalBg, 20);
+        }
 
         if(showDebug){
             char dbg[128];
             snprintf(dbg, sizeof(dbg), "Ball: (%.1f,%.1f) v(%.1f,%.1f)", ball.x, ball.y, ball.vx, ball.vy);
-            render_text(dbg, 8, 80);
+            render_text_small(dbg, 8, 80);
             snprintf(dbg, sizeof(dbg), "Players active: ");
-            render_text(dbg, 8, 104);
+            render_text_small(dbg, 8, 104);
             for(size_t i=0;i<players.size();++i){
                 char pinfo[64]; snprintf(pinfo, sizeof(pinfo), "P%d: x=%d y=%d AI=%d act=%d kick=%d", (int)i+1, players[i].r.x, players[i].r.y, players[i].isAI?1:0, players[i].active?1:0, players[i].canKickBall(ball)?1:0);
-                render_text(pinfo, 8, 124 + (int)i*20);
+                render_text_small(pinfo, 8, 124 + (int)i*20);
             }
         }
 
@@ -840,6 +905,8 @@ struct Game {
 
     void cleanup(){
         if(font) TTF_CloseFont(font);
+        if(font_small) TTF_CloseFont(font_small);
+        if(font_large) TTF_CloseFont(font_large);
         if(bgTex) SDL_DestroyTexture(bgTex);
         if(elementsTex) SDL_DestroyTexture(elementsTex);
         if(renderer) SDL_DestroyRenderer(renderer);
