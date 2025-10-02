@@ -142,7 +142,7 @@ struct Player {
     static constexpr int SRC_LEG_H  = 13;
 
     // Hệ số phóng to để nhìn rõ
-    static constexpr float SCALE = 1.4f;
+    static constexpr float SCALE = 1.3f;
 
     // Kích thước vẽ (đã scale)
     static constexpr int BODY_W = int(SRC_BODY_W * SCALE);
@@ -407,13 +407,7 @@ if (texArm) {
     SDL_SetTextureColorMod(texLeg,  255,255,255);
     if (texArm) SDL_SetTextureColorMod(texArm, 255,255,255);
 }
-
-
-
 };
-
-
-
 
 // =====================================
 // Scoreboard
@@ -474,8 +468,12 @@ struct Game {
     std::vector<Player> players; // left players first, then right
     ScoreBoard score;
 
+    bool autoSelectEnabled = true; // toggle tự động chọn player
+    float autoSelectCooldown = 0.0f; // cooldown giữa các lần chọn
+    const float AUTO_SELECT_INTERVAL = 0.3f; // chỉ chọn lại sau 0.3 giây
+
     bool showDebug = false;
-    bool aiEnabled = false; // let player 2 be AI
+    bool aiEnabled = false; // let player 7 be AI
 
     float goalMessageTimer = 0.0f;
 
@@ -546,15 +544,15 @@ struct Game {
         // Team Blue uses WASD + Q controls for whichever player is active
         
         // === BLUE TEAM (3 players) ===
-        Player p1(60, SCREEN_H/2 - 120, 21, 31);
+        Player p1(445, 171, 21, 31);
         p1.up = SDL_SCANCODE_W; p1.down = SDL_SCANCODE_S; 
         p1.left = SDL_SCANCODE_A; p1.right = SDL_SCANCODE_D; 
         p1.kick = SDL_SCANCODE_Q;
-        p1.active = true; p1.isAI = false;
+        p1.active = false; p1.isAI = false;
         p1.team = Team::Blue;
         players.push_back(p1);
 
-        Player p2(60, SCREEN_H/2 - 20, 21, 31);
+        Player p2(445, 581, 21, 31);
         p2.up = SDL_SCANCODE_W; p2.down = SDL_SCANCODE_S; 
         p2.left = SDL_SCANCODE_A; p2.right = SDL_SCANCODE_D; 
         p2.kick = SDL_SCANCODE_Q;
@@ -562,38 +560,55 @@ struct Game {
         p2.team = Team::Blue;
         players.push_back(p2);
 
-        Player p3(60, SCREEN_H/2 + 80, 21, 31);
+        Player p3(540, 370, 21, 31);
         p3.up = SDL_SCANCODE_W; p3.down = SDL_SCANCODE_S; 
         p3.left = SDL_SCANCODE_A; p3.right = SDL_SCANCODE_D; 
         p3.kick = SDL_SCANCODE_Q;
-        p3.active = false; p3.isAI = false;
+        p3.active = true; p3.isAI = false;
         p3.team = Team::Blue;
         players.push_back(p3);
 
-        // === RED TEAM (3 players) ===
-        Player p4(829, 171, 21, 31);
-        p4.up = SDL_SCANCODE_UP; p4.down = SDL_SCANCODE_DOWN; 
-        p4.left = SDL_SCANCODE_LEFT; p4.right = SDL_SCANCODE_RIGHT; 
-        p4.kick = SDL_SCANCODE_RETURN;
-        p4.active = true; p4.isAI = aiEnabled;
-        p4.team = Team::Red;
+        Player p4(115, 370, 21, 31);
+        p4.up = SDL_SCANCODE_W; p4.down = SDL_SCANCODE_S; 
+        p4.left = SDL_SCANCODE_A; p4.right = SDL_SCANCODE_D; 
+        p4.kick = SDL_SCANCODE_Q;
+        p4.active = false; p4.isAI = false;
+        p4.team = Team::Blue;
         players.push_back(p4);
 
-        Player p5(829, 581, 21, 31);
+        // === RED TEAM (3 players) ===
+
+        Player p5(730, 370, 21, 31);
         p5.up = SDL_SCANCODE_UP; p5.down = SDL_SCANCODE_DOWN; 
         p5.left = SDL_SCANCODE_LEFT; p5.right = SDL_SCANCODE_RIGHT; 
         p5.kick = SDL_SCANCODE_RETURN;
-        p5.active = false; p5.isAI = false;
+        p5.active = true; p5.isAI = false;
         p5.team = Team::Red;
         players.push_back(p5);
 
-        Player p6(1159, 370, 21, 31);
+        Player p6(829, 171, 21, 31);
         p6.up = SDL_SCANCODE_UP; p6.down = SDL_SCANCODE_DOWN; 
         p6.left = SDL_SCANCODE_LEFT; p6.right = SDL_SCANCODE_RIGHT; 
         p6.kick = SDL_SCANCODE_RETURN;
         p6.active = false; p6.isAI = false;
         p6.team = Team::Red;
         players.push_back(p6);
+
+        Player p7(829, 581, 21, 31);
+        p7.up = SDL_SCANCODE_UP; p7.down = SDL_SCANCODE_DOWN; 
+        p7.left = SDL_SCANCODE_LEFT; p7.right = SDL_SCANCODE_RIGHT; 
+        p7.kick = SDL_SCANCODE_RETURN;
+        p7.active = false; p7.isAI = false;
+        p7.team = Team::Red;
+        players.push_back(p7);
+
+        Player p8(1159, 370, 21, 31);
+        p8.up = SDL_SCANCODE_UP; p8.down = SDL_SCANCODE_DOWN; 
+        p8.left = SDL_SCANCODE_LEFT; p8.right = SDL_SCANCODE_RIGHT; 
+        p8.kick = SDL_SCANCODE_RETURN;
+        p8.active = false; p8.isAI = aiEnabled;
+        p8.team = Team::Red;
+        players.push_back(p8);
 
         // Blue
         SDL_Texture *bodyBlue = IMG_LoadTexture(renderer, "../kenney_sports-pack/PNG/Blue/characterBlue (1).png");
@@ -614,12 +629,12 @@ struct Game {
         }
 
         // Gán textures cho từng player
-        for(int i = 0; i < 3; i++){ // Blue team (0,1,2)
+        for(int i = 0; i < 4; i++){ // Blue team (0,1,2,3)
             players[i].texBody = bodyBlue;
             players[i].texArm = armBlue;
             players[i].texLeg = legBlue;
         }
-        for(int i = 3; i < 6; i++){ // Red team (3,4,5)
+        for(int i = 4; i < 8; i++){ // Red team (4,5,6,7)
             players[i].texBody = bodyRed;
             players[i].texArm = armRed;
             players[i].texLeg = legRed;
@@ -646,27 +661,34 @@ struct Game {
                 if(e.key.keysym.scancode == SDL_SCANCODE_F1) showDebug = !showDebug;
                 if(e.key.keysym.scancode == SDL_SCANCODE_F2){ 
                     aiEnabled = !aiEnabled; 
-                    players[3].isAI = aiEnabled; // player thứ 4 (index 3)
+                    players[7].isAI = aiEnabled; // player thứ 4 (index 3)
+
+                    autoSelectEnabled = !autoSelectEnabled;
+                    printf("Auto-select %s\n", autoSelectEnabled ? "ENABLED" : "DISABLED");
                 }
                 // Team switching: Q+Tab for Left team, P+Tab for Right team
-                if(e.key.keysym.scancode == SDL_SCANCODE_TAB || e.key.keysym.scancode == SDL_SCANCODE_RSHIFT){
-                    const Uint8* keystate = SDL_GetKeyboardState(NULL);
-                    if(keystate[SDL_SCANCODE_Q]){
-                        cycle_left_team();
-                    }
-                    else if(keystate[SDL_SCANCODE_P]){
-                        cycle_right_team();  
+                if (!autoSelectEnabled) {
+                    if(e.key.keysym.scancode == SDL_SCANCODE_TAB || e.key.keysym.scancode == SDL_SCANCODE_RSHIFT){
+                        const Uint8* keystate = SDL_GetKeyboardState(NULL);
+                        if(keystate[SDL_SCANCODE_Q]){
+                            cycle_left_team();
+                        }
+                        else if(keystate[SDL_SCANCODE_P]){
+                            cycle_right_team();  
+                        }
                     }
                 }
                 // Individual player activation (for testing)
-                if(e.key.keysym.scancode == SDL_SCANCODE_1){ activate_only(0); }
-                if(e.key.keysym.scancode == SDL_SCANCODE_2){ activate_only(1); }
-                if(e.key.keysym.scancode == SDL_SCANCODE_3){ activate_only(2); }
-                if(e.key.keysym.scancode == SDL_SCANCODE_4){ activate_only(3); }
-                if(e.key.keysym.scancode == SDL_SCANCODE_5){ activate_only(4); }
-                if(e.key.keysym.scancode == SDL_SCANCODE_6){ activate_only(5); }
+                if(e.key.keysym.scancode == SDL_SCANCODE_1){ activate_only(0); autoSelectCooldown = 1.0f; }
+                if(e.key.keysym.scancode == SDL_SCANCODE_2){ activate_only(1); autoSelectCooldown = 1.0f; }
+                if(e.key.keysym.scancode == SDL_SCANCODE_3){ activate_only(2); autoSelectCooldown = 1.0f; }
+                if(e.key.keysym.scancode == SDL_SCANCODE_4){ activate_only(3); autoSelectCooldown = 1.0f; }
+                if(e.key.keysym.scancode == SDL_SCANCODE_5){ activate_only(4); autoSelectCooldown = 1.0f; }
+                if(e.key.keysym.scancode == SDL_SCANCODE_6){ activate_only(5); autoSelectCooldown = 1.0f; }
+                if(e.key.keysym.scancode == SDL_SCANCODE_7){ activate_only(6); autoSelectCooldown = 1.0f; }
+                if(e.key.keysym.scancode == SDL_SCANCODE_8){ activate_only(7); autoSelectCooldown = 1.0f; }
                 // AI toggle for specific player
-                if(e.key.keysym.scancode == SDL_SCANCODE_I){ players[3].isAI = !players[3].isAI; }
+                if(e.key.keysym.scancode == SDL_SCANCODE_I){ players[7].isAI = !players[7].isAI; }
             }
         }
     }
@@ -674,36 +696,103 @@ struct Game {
     void activate_only(int idx){
         for(size_t i=0;i<players.size();++i) players[i].active = (int)i==idx;
     }
+
     void cycle_left_team(){
-        // Cycle giữa 3 players của Blue team (0,1,2)
+        // Cycle giữa 4 players của Blue team (0,1,2,3)
         int cur = -1;
-        for(int i = 0; i <= 2; i++){
+        for(int i = 0; i <= 3; i++){
             if(players[i].active){
                 cur = i;
                 players[i].active = false;
                 break;
             }
         }
-        int next = (cur + 1) % 3; // 0->1->2->0
+        if(cur == -1) cur = -1;
+        int next = (cur + 1) % 4; // 0->1->2->3->0
         players[next].active = true;
     }
     
     void cycle_right_team(){
-        // Cycle giữa 3 players của Red team (3,4,5)
+        // Cycle giữa 4 players của Red team (4,5,6,7)
         int cur = -1;
-        for(int i = 3; i <= 5; i++){
+        for(int i = 4; i <= 7; i++){
             if(players[i].active){
                 cur = i;
                 players[i].active = false;
                 break;
             }
         }
-        int next = ((cur - 3 + 1) % 3) + 3; // 3->4->5->3
+        if(cur == -1) cur = 3;
+        int next = ((cur - 4 + 1) % 4) + 4; // 3->4->5->3
         players[next].active = true;
     }
 
-    void update(float dt){
+    int findClosestPlayerInTeam(Team team, const Ball& ball) const {
+        int startIdx = (team == Team::Blue) ? 0 : 4;
+        int endIdx = (team == Team::Blue) ? 3 : 7;
+        
+        float ballCenterX = ball.x + ball.size / 2.0f;
+        float ballCenterY = ball.y + ball.size / 2.0f;
+        
+        int closestIdx = startIdx;
+        float minDist = 999999.0f;
+        
+        for(int i = startIdx; i <= endIdx; i++){
+            float playerCenterX = players[i].r.x + players[i].r.w / 2.0f;
+            float playerCenterY = players[i].r.y + players[i].r.h / 2.0f;
+            
+            float dx = playerCenterX - ballCenterX;
+            float dy = playerCenterY - ballCenterY;
+            float dist = std::sqrt(dx*dx + dy*dy);
+            
+            if(dist < minDist){
+                minDist = dist;
+                closestIdx = i;
+            }
+        }
+        
+        return closestIdx;
+    }
+
+    // Tự động chọn player gần bóng nhất cho mỗi team
+    void autoSelectPlayers(float dt){
+        if(!autoSelectEnabled) return;
+        
+        // Cooldown để tránh đổi quá nhanh
+        autoSelectCooldown -= dt;
+        if(autoSelectCooldown > 0.0f) return;
+        
+        // Tìm player gần nhất cho Blue team
+        int closestBlue = findClosestPlayerInTeam(Team::Blue, ball);
+        bool blueChanged = false;
+        for(int i = 0; i <= 3; i++){
+            if(players[i].active && i != closestBlue){
+                blueChanged = true;
+            }
+            players[i].active = (i == closestBlue);
+        }
+        
+        // Tìm player gần nhất cho Red team
+        int closestRed = findClosestPlayerInTeam(Team::Red, ball);
+        bool redChanged = false;
+        for(int i = 4; i <= 7; i++){
+            if(players[i].active && i != closestRed){
+                redChanged = true;
+            }
+            players[i].active = (i == closestRed);
+        }
+        
+        // Nếu có thay đổi, set cooldown
+        if(blueChanged || redChanged){
+            autoSelectCooldown = AUTO_SELECT_INTERVAL;
+        }
+    }
+
+        void update(float dt){
         const Uint8* keystate = SDL_GetKeyboardState(NULL);
+
+        autoSelectPlayers(dt);
+        
         // keyboard update for players
         for(auto &p : players) p.update_from_keyboard(keystate, dt);
         // AI update
@@ -908,9 +997,15 @@ struct Game {
         render_goal(SCREEN_W - goalWidth +16, goalY, goalWidth, goalHeight, false); // cầu môn phải
 
         // HUD
-        render_text_small("Tiny Football - F1 debug, F2 toggle AI", 8, 8);
-        render_text_small("Controls: WASD+Q (Blue Team), Arrows+RShift (Orange Team)", 8, 770);
-        render_text_small("Switch Player: Q+Tab (Blue), P+Tab (Orange)", 800, 770);
+        render_text_small("Tiny Football", 8, 8);
+        render_text_small("Controls: WASD+Q (Blue Team), Arrows+Enter (Orange Team)", 8, 770);
+        render_text_small("Switch Player: Q+Tab (Blue), P+RShift (Orange)", 900, 770);
+
+        if(autoSelectEnabled){
+            render_text("AUTO-SELECT: ON", 500, 770);
+        } else {
+            render_text("AUTO-SELECT: OFF", 500, 770);
+        }
 
         char scoreText[64]; 
         snprintf(scoreText, sizeof(scoreText), "%d  -  %d", score.left, score.right);
